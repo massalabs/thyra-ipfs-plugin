@@ -1,17 +1,45 @@
 package main
 
 import (
+	"embed"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
 
+	"github.com/gin-contrib/static"
+	"github.com/gin-gonic/gin"
 	"github.com/massalabs/thyra-ipfs-plugin/pkg/ipfs"
 	"github.com/massalabs/thyra-ipfs-plugin/pkg/plugin"
-
-	"github.com/gin-gonic/gin"
 	cors "github.com/rs/cors/wrapper/gin"
 )
+
+//go:embed static/*
+var staticFiles embed.FS
+
+type embedFileSystem struct {
+	http.FileSystem
+}
+
+func (e embedFileSystem) Exists(prefix string, path string) bool {
+	_, err := e.Open(path)
+	return err == nil
+}
+
+func EmbedFolder(fsEmbed embed.FS, targetPath string) static.ServeFileSystem {
+	fsys, err := fs.Sub(fsEmbed, targetPath)
+	if err != nil {
+		log.Panicln(err)
+	}
+	return embedFileSystem{
+		FileSystem: http.FS(fsys),
+	}
+}
+
+func embedStatics(router *gin.Engine) {
+	router.Use(static.Serve("/", EmbedFolder(staticFiles, "static")))
+}
 
 func pushData(c *gin.Context) {
 	c.JSON(201, gin.H{"status": ""})
@@ -43,6 +71,8 @@ func main() {
 	router.Use(cors.Default())
 	router.GET("/fetch", fetchData)
 	router.POST("/push", pushData)
+
+	embedStatics(router)
 
 	ln, _ := net.Listen("tcp", ":")
 
